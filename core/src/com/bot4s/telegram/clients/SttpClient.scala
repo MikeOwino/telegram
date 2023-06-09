@@ -2,6 +2,7 @@ package com.bot4s.telegram.clients
 
 import cats.MonadError
 import cats.syntax.functor._
+import cats.syntax.flatMap._
 import com.bot4s.telegram.api.RequestHandler
 import com.bot4s.telegram.marshalling.CaseConversions
 import com.bot4s.telegram.methods.{ JsonRequest, MultipartRequest, Request => BotRequest, Response }
@@ -45,21 +46,19 @@ class SttpClient[F[_]](token: String, telegramHost: String = "api.telegram.org")
   override def sendRequest[R, T <: BotRequest[_]](request: T)(implicit encT: Encoder[T], decR: Decoder[R]): F[R] = {
     val url = apiBaseUrl + request.methodName
 
-    val sttpRequest: SttpRequest[String, Any] = request match {
+    val sttpRequest: Either[IllegalArgumentException, SttpRequest[String, Any]] = request match {
       case r: JsonRequest[_] =>
-        quickRequest.post(uri"$url").body(request)
+        Right(quickRequest.post(uri"$url").body(request))
 
       case r: MultipartRequest[_] =>
-        val files = r.getFiles
-
-        val parts = files.map { case (camelKey, inputFile) =>
+        val parts = r.getFiles.flatMap { case (camelKey, inputFile) =>
           val key = CaseConversions.snakenize(camelKey)
           inputFile match {
-            case InputFile.FileId(id)                   => multipart(key, id)
-            case InputFile.Contents(filename, contents) => multipart(key, contents).fileName(filename)
-            // case InputFile.Path(path) => multipartFile(key, path)
-            case other =>
-              throw new RuntimeException(s"InputFile $other not supported")
+            // FileId must be submitted through the JSON query, see `inputFileEncoder`
+            case InputFile.FileId(id)                   => None
+            case InputFile.Contents(filename, contents) => Some(multipart(key, contents).fileName(filename))
+            case InputFile.Path(path)                   => Some(multipartFile(key, path))
+            case other                                  => throw new RuntimeException(s"InputFile $other not supported")
           }
         }
 
@@ -69,26 +68,31 @@ class SttpClient[F[_]](token: String, telegramHost: String = "api.telegram.org")
             _.asObject.map {
               _.toMap.mapValues { json =>
                 json.asString.getOrElse(json.printWith(marshalling.printer))
-              }.toMap
+              }.toMap.map { case (name, value) => multipart(name, value) }
             }
           )
 
-        val params = fields.getOrElse(Map()).toMap
+        val params = fields.getOrElse(List.empty).toList
 
-        quickRequest.post(uri"$url?$params").multipartBody(parts)
+        Right(quickRequest.post(uri"$url").multipartBody(params ++ parts))
+      case req =>
+        Left(new IllegalArgumentException(f"Unsupported request type ${req.getClass().getName()}"))
     }
 
-    logger.debug(sttpRequest.toCurl)
+    monadError.fromEither(sttpRequest).flatMap { request =>
+      logger.debug(request.toCurl)
 
-    import com.bot4s.telegram.marshalling.responseDecoder
+      import com.bot4s.telegram.marshalling.responseDecoder
 
-    val response = sttpRequest
-      .readTimeout(readTimeout)
-      .response(asJson[Response[R]])
-      .send(backend)
+      val response = request
+        .readTimeout(readTimeout)
+        .response(asJson[Response[R]])
+        .send(backend)
 
-    response
-      .map(_.body)
-      .map(processApiResponse[R])
+      response
+        .map(_.body)
+        .map(processApiResponse[R])
+    }
+
   }
 }

@@ -16,6 +16,7 @@ import com.bot4s.telegram.models.MemberStatus.MemberStatus
 import com.bot4s.telegram.models.BotCommandScope.BotCommandScope
 import com.bot4s.telegram.models.MessageEntityType.MessageEntityType
 import com.bot4s.telegram.models.StickerType.StickerType
+import com.bot4s.telegram.models.StickerFormat.StickerFormat
 import UpdateType.UpdateType
 import com.bot4s.telegram.models._
 import io.circe.{ Decoder, HCursor }
@@ -83,6 +84,26 @@ trait CirceDecoders extends StrictLogging {
   implicit val botCommandDecoder: Decoder[BotCommand] = deriveDecoder[BotCommand]
 
   implicit val chatLocationDecoder: Decoder[ChatLocation] = deriveDecoder[ChatLocation]
+  // for v6.7 support
+  implicit val botNameDecoder: Decoder[BotName] = deriveDecoder[BotName]
+  implicit val inlineQueryResultsButtonDecoder: Decoder[InlineQueryResultsButton] =
+    deriveDecoder[InlineQueryResultsButton]
+  implicit val switchInlineQueryChosenChatDecoder: Decoder[SwitchInlineQueryChosenChat] =
+    deriveDecoder[SwitchInlineQueryChosenChat]
+  // for v6.6 support
+  implicit val stickerFormatDecoder: Decoder[StickerFormat] =
+    Decoder[String].map(s => StickerFormat.withName(pascalize(s)))
+
+  implicit val botDescriptionDecoder: Decoder[BotDescription]           = deriveDecoder[BotDescription]
+  implicit val botShortDescriptionDecoder: Decoder[BotShortDescription] = deriveDecoder[BotShortDescription]
+  // for v6.5 support
+  implicit val KeyboardButtonRequestUserDecoder: Decoder[KeyboardButtonRequestUser] =
+    deriveDecoder[KeyboardButtonRequestUser]
+  implicit val KeyboardButtonRequestChatDecoder: Decoder[KeyboardButtonRequestChat] =
+    deriveDecoder[KeyboardButtonRequestChat]
+  implicit val UserSharedDecoder: Decoder[UserShared] = deriveDecoder[UserShared]
+  implicit val ChatSharedDecoder: Decoder[ChatShared] = deriveDecoder[ChatShared]
+
   // for v6.4 support
   implicit val editGeneralForumTopicDecoder: Decoder[EditGeneralForumTopic]     = deriveDecoder[EditGeneralForumTopic]
   implicit val closeGeneralForumTopicDecoder: Decoder[CloseGeneralForumTopic]   = deriveDecoder[CloseGeneralForumTopic]
@@ -225,7 +246,7 @@ trait CirceDecoders extends StrictLogging {
 
   implicit val loginUrlDecoder: Decoder[LoginUrl] = deriveDecoder[LoginUrl]
 
-  implicit def responseDecoder[T](implicit decT: Decoder[T]): Decoder[Response[T]] = deriveDecoder[Response[T]]
+  implicit def responseDecoder[T: Decoder]: Decoder[Response[T]] = deriveDecoder[Response[T]]
 
   implicit def eitherDecoder[A, B](implicit decA: Decoder[A], decB: Decoder[B]): Decoder[Either[A, B]] = {
     val l: Decoder[Either[A, B]] = decA.map(Left.apply)
